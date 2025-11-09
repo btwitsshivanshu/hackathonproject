@@ -281,33 +281,54 @@ def pharmacist_dashboard():
     ).order_by(Appointment.date.desc()).all()
     return render_template("pharmacist_dashboard.html", prescriptions=prescriptions)
 
-import speech_recognition as sr
-import pyttsx3
-import threading
-import queue
+# Voice features are optional. Wrap imports so app still runs if audio
+# libraries or system modules (like `aifc`) are missing on this Python.
+voice_enabled = False
+try:
+    import speech_recognition as sr
+    import pyttsx3
+    import threading
+    import queue
 
-engine = pyttsx3.init()
-engine.setProperty("rate", 175)
-speech_queue = queue.Queue()
+    voice_enabled = True
+except Exception as _e:
+    # Keep names defined so other code can import this module.
+    # We'll disable voice functionality below and fall back to no-op.
+    print("Voice modules unavailable or failed to import:", _e)
+    sr = None
+    pyttsx3 = None
+    import threading
+    import queue
 
-def tts_worker():
-    """Continuously process speech queue in a single thread"""
-    while True:
-        text = speech_queue.get()
-        if text is None:
-            break
-        try:
-            engine.say(text)
-            engine.runAndWait()
-        except Exception as e:
-            print("TTS error:", e)
-        speech_queue.task_done()
 
-threading.Thread(target=tts_worker, daemon=True).start()
+if voice_enabled:
+    engine = pyttsx3.init()
+    engine.setProperty("rate", 175)
+    speech_queue = queue.Queue()
 
-def speak(text):
-    """Thread-safe text-to-speech call"""
-    speech_queue.put(text)
+    def tts_worker():
+        """Continuously process speech queue in a single thread"""
+        while True:
+            text = speech_queue.get()
+            if text is None:
+                break
+            try:
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                print("TTS error:", e)
+            speech_queue.task_done()
+
+    threading.Thread(target=tts_worker, daemon=True).start()
+
+    def speak(text):
+        """Thread-safe text-to-speech call"""
+        speech_queue.put(text)
+else:
+    # Fallback speak implementation when voice is disabled
+    def speak(text):
+        # Print to console so there's still feedback in logs
+        print("[speak disabled]", text)
 
 
 from difflib import SequenceMatcher
@@ -325,6 +346,11 @@ def voice_book():
     if current_user.role != "patient":
         flash("Only patients can use voice booking.", "flash-danger")
         return redirect(url_for("index"))
+
+    # If voice libraries failed to import, disable the feature gracefully.
+    if not voice_enabled:
+        flash("Voice features are not available on this system.", "flash-danger")
+        return redirect(url_for("patient_dashboard"))
 
     patient_id = current_user.id 
 
